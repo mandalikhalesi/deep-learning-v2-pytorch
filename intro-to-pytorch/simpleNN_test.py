@@ -16,10 +16,16 @@ print("\nThese are weights: ", weights)
 features_times_weights = torch.sum(features*weights)
 print("\nThis is features times weights: ", features_times_weights) 
 
+features_mm_weights = torch.mm(features, weights.view(5, 1))
+print("\nThis is features mm weights: ", features_mm_weights) 
+
 bias = torch.randn((1, 1))
 print("\nThis is bias: ", bias) 
 
 y = activation(features_times_weights + bias)
+print("\nThis is y (sum): ", y) 
 
-print("\nThis is y: ", y) 
+y2 = activation(features_mm_weights + bias)
+print("\nThis is y (mm): ", y2) 
+
 
