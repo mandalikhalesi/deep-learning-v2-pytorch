@@ -43,7 +43,6 @@ model = nn.Sequential(nn.Linear(784, 128),
                       )
 
 # Define a loss function using Negative Log Likelihood Loss function
-#criterion = nn.NLLLoss(reduction=sum)
 criterion = nn.NLLLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.005)
 
