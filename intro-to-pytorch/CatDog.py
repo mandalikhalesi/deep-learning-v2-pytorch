@@ -9,15 +9,6 @@ import helper
 import matplotlib.pyplot as plt
 import time
 
-# The MNIST datasets are hosted on yann.lecun.com that has moved under CloudFlare protection
-# Run this script to enable the datasets download
-# Reference: https://github.com/pytorch/vision/issues/1938
-
-# No download libraries needed here as accessing local files
-#opener = urllib.request.build_opener()
-#opener.addheaders = [('User-agent', 'Mozilla/5.0')]
-#urllib.request.install_opener(opener)
-
 # Define two transformers for training and testing
 train_transform = transforms.Compose([transforms.RandomRotation(30),
                                       transforms.RandomResizedCrop(224),
@@ -123,12 +114,6 @@ for e in range(epochs):
 
             tot_test_loss += loss_test.item()
 
-            # Commenting out this as tensor sizes don't match... review test accuracy later
-            #ps = torch.exp(logits_test)
-            #top_p, top_class = ps.topk(1, dim=1)
-            #equals = top_class == labels.view(*top_class.shape)
-            #test_correct += equals.sum().item()
-         
          # Set model back to regular training mode
          model.train()
          end = time.time()
@@ -150,7 +135,6 @@ for e in range(epochs):
       print("\nTraining loss:\n{}".format(train_loss))
       print("\nTest loss:\n{}".format(test_loss))
       print("\nEpoch training time (h):\n{}".format(training_time))
-      #print("\nTest accuracy:\n{}".format(test_accuracy))
 
 # Save the model to external checkpoint file
 print("\nCat/Dog model checkpoint saved to file...\n")
@@ -158,6 +142,7 @@ torch.save(model.state_dict(), 'checkpoint_CatDog_2HiddenLayers.pth')
 
 print("\n...and we're done with calculations. Now to plot the losses and training times.\n")
 
+# Plot results in interactive window
 plt.plot(train_losses, label='Training loss')
 plt.plot(test_losses, label='Validation loss')
 plt.plot(epoch_trainingtime, label='Epoch training time (h)')
