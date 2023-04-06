@@ -1,0 +1,76 @@
+
+ Accessing and loading local Cat/Dog training dataset...
+
+
+ ...Access and load of Cat/Dog training dataset done.
+
+
+ Accessing and loading local Cat/Dog test dataset...
+
+
+ ...Access and load of Cat/Dog test dataset done.
+
+
+ Training NN from training data (2 hidden layers, 5 epochs, optim.Adam, lr 0.005)...
+
+
+Epoch 1 of 5:
+
+Training loss:
+0.05500170158015357
+
+Test loss:
+0.022267099475860596
+
+Epoch training time (h):
+0.09216164615419176
+
+Epoch 2 of 5:
+
+Training loss:
+0.02176991104549832
+
+Test loss:
+0.02194583604335785
+
+Epoch training time (h):
+0.13587521923912896
+
+Epoch 3 of 5:
+
+Training loss:
+0.021790323577986822
+
+Test loss:
+0.02189714787006378
+
+Epoch training time (h):
+0.13381984253724416
+
+Epoch 4 of 5:
+
+Training loss:
+0.021740969326761034
+
+Test loss:
+0.021931446838378905
+
+Epoch training time (h):
+0.13558491865793865
+
+Epoch 5 of 5:
+
+Training loss:
+0.0217140915605757
+
+Test loss:
+0.02182953667640686
+
+Epoch training time (h):
+0.13586855696307287
+
+Cat/Dog model checkpoint saved to file...
+
+
+...and we're done with calculations. Now to plot the losses and training times.
+
