@@ -4,20 +4,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import datasets, models, transforms
 import torch.optim as optim
-import six.moves.urllib as urllib #pyright: ignore (acc to Github discussion on why Pylance throws error)
 import os
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-
-# Adding hack from https://github.com/pytorch/pytorch/issues/33288 as getting SSL certificate verify failed error (unable to get local issuer certificate) when downloading DenseNet121 pretrained model (Mac issue?)
-import ssl
-ssl._create_default_https_context = ssl._create_unverified_context
-
-# urllib section as usual
-opener = urllib.request.build_opener()
-opener.addheaders = [('User-agent', 'Mozilla/5.0')]
-urllib.request.install_opener(opener)
 
 # Open text file and read in data as 'text'
 with open('data/anna.txt', 'r') as f:
@@ -33,14 +23,14 @@ encoded = np.array([char2int[ch] for ch in text])
 
 print("\nThe first 300 chars (encoded) from Anna K:\n{}\n".format(encoded[:300]))
 
-# Char RNN is expecting a one-hot encoded input -> create fuction to feed in text input as such
+# Char RNN is expecting a one-hot encoded input -> create function to feed in text input as such
 def one_hot_encode(arr, n_labels):
     
     #Initialize the array
     one_hot = np.zeros((arr.size, n_labels), dtype=np.float32)
 
     # Fill appropriate elements with ones
-    one_hot[np.arange(one_hot.shape[0]), arr.flatten()] = 1
+    one_hot[np.arange(one_hot.shape[0]), arr.flatten()] = 1.
 
     # Reshape to original array
     one_hot = one_hot.reshape((*arr.shape, n_labels))
@@ -70,20 +60,24 @@ def get_batches(arr, batch_size, seq_length):
     q = len(arr) // (batch_size * seq_length)
     mod = len(arr) % (batch_size * seq_length)
     #n_batches = q
-
-    #Slice data so that we have fully packed sequences (cut off some end text)
+    print("\nbatch_size is:\n{}\n".format(batch_size))  
+    print("\nseq_length is:\n{}\n".format(seq_length))  
+    
     arr = arr[:(len(arr)-mod)]
     arr = arr.reshape((batch_size, -1))
+    print("\narr.shape[0] is:\n{}\n".format(arr.shape[0]))  
+    print("\narr.shape[1] is:\n{}\n".format(arr.shape[1]))  
 
     for n in range(0, arr.shape[1], seq_length):
         # The features
         x = arr[:, n:+seq_length]
-        # The targets shifted by one (why?)
+        # Zeroes matrix to match x's size
         y = np.zeros_like(x)
-        # This part below flying above my head...
+        # Shift targets by one
         try:
             y[:, :-1], y[:, -1] = x[:, 1:], arr[:, n+seq_length]
-        except IndexError:
+        except IndexError as err: # Throwing errors here, no idea why, it's same as the notebook code that runs fine... "index -1 is out of bounds for axis 1 with size 0"
+            print("\nError is following:\n{}\n".format(err))
             y[:, :-1], y[:, -1] = x[:, 1:], arr[:, 0]
         yield x, y
 
@@ -91,21 +85,193 @@ def get_batches(arr, batch_size, seq_length):
 batches = get_batches(encoded, 8, 50)
 x , y = next(batches)
 
-print("\nx is:\n{}".format(x[:10, :10]))
-print("\ny is:\n{}".format(y[:10, :10]))
+print("\nx.shape[0] is:\n{}\nx is:\n{}".format(x.shape[0], x[:10, :110]))
+print("\ny.shape[0] is:\n{}\ny is:\n{}".format(y.shape[0], y[:10, :110]))
+print("\nx.shape[1] is:\n{}\nx is:\n{}".format(x.shape[1], x[:10, :10]))
+print("\ny.shape[1] is:\n{}\ny is:\n{}".format(y.shape[1], y[:10, :10]))
+
+# %%
+
+class CharRNN(nn.Module):
+    def __init__(self, tokens, n_hidden=256, n_layers=2, drop_prob=0.5, lr=0.001):
+        super().__init__()
+        self.drop_prob = drop_prob
+        self.n_layers = n_layers
+        self.n_hidden = n_hidden
+        self.lr = lr
+
+        # Creating dictionaries
+        self.chars = tokens
+        self.int2char = dict(enumerate(self.chars))
+        self.char2int = {ch: ii for ii, ch in self.int2char.items()}
+        
+        # Define layers of model
+        self.lstm = nn.LSTM(input_size=len(self.chars), hidden_size=n_hidden, num_layers=n_layers, dropout=drop_prob, batch_first=True)
+        self.dropout = nn.Dropout(p=drop_prob)     
+        self.fc = nn.Linear(n_hidden, len(self.chars))     
+
+    def forward(self, x, hidden):
+        r_output, hidden = self.lstm(x, hidden)
+        out = self.dropout(r_output)
+        out = out.contiguous().view(-1, self.n_hidden)
+        out = self.fc(out)
+        return out, hidden
+    
+    def init_hidden(self, batch_size):
+        ''' Initializes hidden state '''
+        # Create two new tensors with sizes n_layers x batch_size x n_hidden,
+        # initialized to zero, for hidden state and cell state of LSTM
+
+        weight = next(self.parameters()).data
+        hidden = (weight.new(self.n_layers, batch_size, self.n_hidden).zero_(),
+                  weight.new(self.n_layers, batch_size, self.n_hidden).zero_())
+        return hidden
+
+
+def train(net, data, epochs=10, batch_size=10, seq_length=50, lr=0.001, clip=5, val_frac=0.1, print_every=10):
+     ''' Training a network 
+    
+        Arguments
+        ---------
+        
+        net: CharRNN network
+        data: text data to train the network
+        epochs: Number of epochs to train
+        batch_size: Number of mini-sequences per mini-batch, aka batch size
+        seq_length: Number of character steps per mini-batch
+        lr: learning rate
+        clip: gradient clipping
+        val_frac: Fraction of data to hold out for validation
+        print_every: Number of steps for printing training and validation loss
+    
+    '''
+     net.train()
+
+     # Define a loss function using Cross Entropy Loss and Adam optimizer function
+     criterion = nn.CrossEntropyLoss()
+     optimizer = optim.Adam(net.parameters(), lr=lr)
+
+     # Create training and validation data
+     val_idx = int(len(data)*(1-val_frac))
+     data, val_data = data[:val_idx], data[val_idx:]
+
+     counter = 0
+     n_chars = len(net.chars)
+
+     for e in range(epochs):
+         # Start epoch time counter
+         start = time.time()
+         
+         # Initialize hidden state
+         h = net.init_hidden(batch_size)
+
+         for x, y in get_batches(data, batch_size, seq_length):
+             counter += 1
+
+             # One hot encode values and turn into Tensors
+             x = one_hot_encode(x, n_chars)
+             inputs, targets = torch.from_numpy(x), torch.from_numpy(y)
+
+             # Create new variables for data without going through training history
+             h = tuple([each.data for each in h])
+
+             # Zero out gradients
+             net.zero_grad()
+
+             # Get output
+             output, h = net(inputs, h)
+
+             # Calculate loss and backpropagation step 
+             loss = criterion(output, targets.view(batch_size*seq_length).long())
+             loss.backward()
+
+             # Clip parameters with clip_grad_norm_ to mitigate exploding gradient problem
+             nn.utils.clip_grad_norm_(net.parameters(), clip)
+
+             # Run optimizer step
+             optimizer.step()
+
+             # Stats
+             if counter % print_every == 0:
+                 
+                 #Get validation loss
+                 val_h = net.init_hidden(batch_size)
+                 val_losses = []
+                 net.eval()
+
+                 for x, y in get_batches(val_data, batch_size, seq_length):
+                     
+                     # One hot encode values and turn into Tensors
+                     x = one_hot_encode(x, n_chars)
+                     inputs, targets = torch.from_numpy(x), torch.from_numpy(y)
+
+                     # Create new variables for data without going through training history
+                     val_h = tuple([each.data for each in val_h])
+
+                     inputs, targets = x, y
+
+                     # Get val_h output
+                     output, val_h = net(inputs, val_h)
+
+                     # Calculate loss and backpropagation step 
+                     val_loss = criterion(output, targets.view(batch_size*seq_length).long())
+                     val_losses.append(val_loss.item())
+
+                 net.train()
+                 end = time.time()
+
+                 print("\nEpoch step: {} of {}; ".format(e+1, epochs),
+                      "Step: {}...; ".format(counter),
+                      "Training time/epoch: {:.4f}; ".format(end-start),
+                      "Loss: {:.4f}; ".format(loss.item()),
+                      "Val Loss: {:.4f}.".format(np.mean(val_losses)))
+
+# Define model hyperparameters and train network 
+n_hidden = 512
+n_layers = 2
+
+net = CharRNN(chars, n_hidden, n_layers)
+print("\nModel is as follows:\n{}\n".format(net))
+
+batch_size = 128
+seq_length = 100
+n_epochs = 10
+
+print("\nStarting model training...\n")
+train(net, encoded, epochs=n_epochs, batch_size=batch_size, seq_length=seq_length, lr=0.001, print_every=10)
+print("\n...model training complete.\n{}\n".format(net))
 
 
 # %%
 
 
 
+                     
 
 
 
 
 
 
-# # Define two transformers for training and testing
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# %%
+# **STUFF BELOW HERE NEEDS TO BE ADAPTED**
+# Define two transformers for training and testing
 # train_transform = transforms.Compose([transforms.RandomResizedCrop(224),
 #                                       transforms.ToTensor()
 #                                     ])
@@ -186,6 +352,8 @@ print("\ny is:\n{}".format(y[:10, :10]))
 # #                       nn.Linear(64, 10),
 # #                       nn.LogSoftmax(dim=1)
 # #                       )
+
+
 
 # # Define a loss function using Cross Entropy Loss and SGD function
 # criterion = nn.CrossEntropyLoss()
